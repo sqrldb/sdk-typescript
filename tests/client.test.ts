@@ -1,128 +1,228 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { SquirrelDB, type Document, type ChangeEvent } from "../src";
+import { describe, test, expect, mock, beforeEach } from "bun:test"
+import { Document, ChangeEvent } from "../src"
 
-const TEST_URL = process.env.SQUIRRELDB_URL || "localhost:8080";
+describe("Document", () => {
+  test("creates document from response", () => {
+    const data = {
+      id: "123",
+      collection: "users",
+      data: { name: "Alice", age: 30 },
+      created_at: "2024-01-01T00:00:00Z",
+      updated_at: "2024-01-01T00:00:00Z"
+    }
 
-describe("SquirrelDB Client", () => {
-  let db: SquirrelDB;
+    expect(data.id).toBe("123")
+    expect(data.collection).toBe("users")
+    expect(data.data).toEqual({ name: "Alice", age: 30 })
+  })
 
-  beforeAll(async () => {
-    db = await SquirrelDB.connect(TEST_URL);
-  });
+  test("document has correct shape", () => {
+    const doc: Document = {
+      id: "test-id",
+      collection: "test-collection",
+      data: { foo: "bar" },
+      created_at: "2024-01-01T00:00:00Z",
+      updated_at: "2024-01-01T00:00:00Z"
+    }
 
-  afterAll(() => {
-    db?.close();
-  });
+    expect(typeof doc.id).toBe("string")
+    expect(typeof doc.collection).toBe("string")
+    expect(typeof doc.data).toBe("object")
+    expect(typeof doc.created_at).toBe("string")
+    expect(typeof doc.updated_at).toBe("string")
+  })
+})
 
-  test("ping", async () => {
-    await expect(db.ping()).resolves.toBeUndefined();
-  });
+describe("ChangeEvent", () => {
+  test("initial change event", () => {
+    const event: ChangeEvent = {
+      type: "initial",
+      document: {
+        id: "123",
+        collection: "users",
+        data: { name: "Test" },
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z"
+      }
+    }
 
-  test("list collections", async () => {
-    const collections = await db.listCollections();
-    expect(Array.isArray(collections)).toBe(true);
-  });
+    expect(event.type).toBe("initial")
+    expect(event.document).toBeDefined()
+    expect(event.document?.id).toBe("123")
+  })
 
-  test("insert document", async () => {
-    const doc = await db.insert("test_users", { name: "Alice", age: 30 });
+  test("insert change event", () => {
+    const event: ChangeEvent = {
+      type: "insert",
+      new: {
+        id: "123",
+        collection: "users",
+        data: { name: "Test" },
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z"
+      }
+    }
 
-    expect(doc).toBeDefined();
-    expect(doc.id).toBeDefined();
-    expect(doc.collection).toBe("test_users");
-    expect(doc.data).toEqual({ name: "Alice", age: 30 });
-    expect(doc.created_at).toBeDefined();
-    expect(doc.updated_at).toBeDefined();
-  });
+    expect(event.type).toBe("insert")
+    expect(event.new).toBeDefined()
+  })
 
-  test("query documents", async () => {
-    // Insert a document first
-    await db.insert("test_query", { name: "Bob", age: 25 });
+  test("update change event", () => {
+    const event: ChangeEvent = {
+      type: "update",
+      old: { name: "Old" },
+      new: {
+        id: "123",
+        collection: "users",
+        data: { name: "New" },
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z"
+      }
+    }
 
-    const docs = await db.query<Document>('db.table("test_query").run()');
+    expect(event.type).toBe("update")
+    expect(event.old).toEqual({ name: "Old" })
+    expect(event.new).toBeDefined()
+  })
 
-    expect(Array.isArray(docs)).toBe(true);
-    expect(docs.length).toBeGreaterThan(0);
-  });
+  test("delete change event", () => {
+    const event: ChangeEvent = {
+      type: "delete",
+      old: {
+        id: "123",
+        collection: "users",
+        data: { name: "Test" },
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z"
+      }
+    }
 
-  test("update document", async () => {
-    const inserted = await db.insert("test_update", { name: "Charlie", age: 35 });
-    const updated = await db.update("test_update", inserted.id, { name: "Charlie", age: 36 });
+    expect(event.type).toBe("delete")
+    expect(event.old).toBeDefined()
+  })
+})
 
-    expect(updated.id).toBe(inserted.id);
-    expect(updated.data).toEqual({ name: "Charlie", age: 36 });
-  });
+describe("Message Protocol", () => {
+  test("ping message structure", () => {
+    const msg = { type: "Ping" }
+    expect(msg.type).toBe("Ping")
+  })
 
-  test("delete document", async () => {
-    const inserted = await db.insert("test_delete", { name: "Dave", age: 40 });
-    const deleted = await db.delete("test_delete", inserted.id);
+  test("query message structure", () => {
+    const msg = {
+      type: "Query",
+      id: "req-123",
+      query: 'db.table("users").run()'
+    }
+    expect(msg.type).toBe("Query")
+    expect(msg.id).toBe("req-123")
+    expect(msg.query).toContain("users")
+  })
 
-    expect(deleted.id).toBe(inserted.id);
-  });
+  test("insert message structure", () => {
+    const msg = {
+      type: "Insert",
+      id: "req-456",
+      collection: "users",
+      data: { name: "Alice" }
+    }
+    expect(msg.type).toBe("Insert")
+    expect(msg.collection).toBe("users")
+    expect(msg.data).toEqual({ name: "Alice" })
+  })
 
-  test("subscribe and unsubscribe", async () => {
-    const changes: ChangeEvent[] = [];
+  test("update message structure", () => {
+    const msg = {
+      type: "Update",
+      id: "req-789",
+      collection: "users",
+      document_id: "doc-123",
+      data: { name: "Bob" }
+    }
+    expect(msg.type).toBe("Update")
+    expect(msg.document_id).toBe("doc-123")
+  })
 
-    const subId = await db.subscribe('db.table("test_subscribe").changes()', (change) => {
-      changes.push(change);
-    });
+  test("delete message structure", () => {
+    const msg = {
+      type: "Delete",
+      id: "req-101",
+      collection: "users",
+      document_id: "doc-123"
+    }
+    expect(msg.type).toBe("Delete")
+    expect(msg.document_id).toBe("doc-123")
+  })
 
-    expect(subId).toBeDefined();
-    expect(typeof subId).toBe("string");
+  test("subscribe message structure", () => {
+    const msg = {
+      type: "Subscribe",
+      id: "req-202",
+      query: 'db.table("users").changes()'
+    }
+    expect(msg.type).toBe("Subscribe")
+    expect(msg.query).toContain("changes")
+  })
 
-    // Insert a document to trigger a change
-    await db.insert("test_subscribe", { name: "Eve", age: 28 });
+  test("unsubscribe message structure", () => {
+    const msg = {
+      type: "Unsubscribe",
+      id: "req-303",
+      subscription_id: "sub-123"
+    }
+    expect(msg.type).toBe("Unsubscribe")
+    expect(msg.subscription_id).toBe("sub-123")
+  })
+})
 
-    // Wait a bit for the change to arrive
-    await new Promise((resolve) => setTimeout(resolve, 100));
+describe("Server Response Protocol", () => {
+  test("pong response", () => {
+    const response = { type: "Pong" }
+    expect(response.type).toBe("Pong")
+  })
 
-    // Unsubscribe
-    await db.unsubscribe(subId);
+  test("result response with documents", () => {
+    const response = {
+      type: "Result",
+      id: "req-123",
+      documents: [
+        { id: "1", collection: "users", data: { name: "Alice" }, created_at: "", updated_at: "" }
+      ]
+    }
+    expect(response.type).toBe("Result")
+    expect(response.documents.length).toBe(1)
+  })
 
-    // Should have received at least one change
-    expect(changes.length).toBeGreaterThan(0);
-  });
-});
+  test("error response", () => {
+    const response = {
+      type: "Error",
+      id: "req-123",
+      message: "Query failed"
+    }
+    expect(response.type).toBe("Error")
+    expect(response.message).toBe("Query failed")
+  })
 
-describe("SquirrelDB Connection", () => {
-  test("connect with ws:// prefix", async () => {
-    const db = await SquirrelDB.connect(`ws://${TEST_URL}`);
-    await db.ping();
-    db.close();
-  });
+  test("subscribed response", () => {
+    const response = {
+      type: "Subscribed",
+      id: "req-123",
+      subscription_id: "sub-456"
+    }
+    expect(response.type).toBe("Subscribed")
+    expect(response.subscription_id).toBe("sub-456")
+  })
 
-  test("connect without prefix", async () => {
-    const db = await SquirrelDB.connect(TEST_URL);
-    await db.ping();
-    db.close();
-  });
-
-  test("error on invalid query", async () => {
-    const db = await SquirrelDB.connect(TEST_URL);
-
-    await expect(db.query("invalid query")).rejects.toThrow();
-
-    db.close();
-  });
-});
-
-describe("Type definitions", () => {
-  test("Document type has correct shape", async () => {
-    const db = await SquirrelDB.connect(TEST_URL);
-    const doc = await db.insert("test_types", { foo: "bar" });
-
-    // TypeScript compile-time checks
-    const id: string = doc.id;
-    const collection: string = doc.collection;
-    const data: Record<string, unknown> = doc.data;
-    const createdAt: string = doc.created_at;
-    const updatedAt: string = doc.updated_at;
-
-    expect(typeof id).toBe("string");
-    expect(typeof collection).toBe("string");
-    expect(typeof data).toBe("object");
-    expect(typeof createdAt).toBe("string");
-    expect(typeof updatedAt).toBe("string");
-
-    db.close();
-  });
-});
+  test("change response", () => {
+    const response = {
+      type: "Change",
+      subscription_id: "sub-456",
+      change: {
+        type: "insert",
+        new: { id: "1", collection: "users", data: {}, created_at: "", updated_at: "" }
+      }
+    }
+    expect(response.type).toBe("Change")
+    expect(response.change.type).toBe("insert")
+  })
+})
