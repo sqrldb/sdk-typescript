@@ -7,10 +7,15 @@ export interface Document<T = Record<string, unknown>> {
   updated_at: string;
 }
 
+import type { StructuredQuery } from "./query";
+
+// Query input - either a structured query object or a JS string (legacy)
+export type QueryInput = StructuredQuery | string;
+
 // Client -> Server messages
 export type ClientMessage =
-  | { type: "query"; id: string; query: string }
-  | { type: "subscribe"; id: string; query: string }
+  | { type: "query"; id: string; query: QueryInput }
+  | { type: "subscribe"; id: string; query: QueryInput }
   | { type: "unsubscribe"; id: string }
   | { type: "insert"; id: string; collection: string; data: unknown }
   | { type: "update"; id: string; collection: string; document_id: string; data: unknown }

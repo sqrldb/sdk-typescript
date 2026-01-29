@@ -23,6 +23,18 @@ export type FilterOperator =
   | { $or: FilterCondition[] }
   | { $not: FilterCondition };
 
+/**
+ * Structured query object sent over the wire
+ */
+export type StructuredQuery = {
+  table: string;
+  filter?: FilterCondition;
+  sort?: { field: string; direction?: SortDirection }[];
+  limit?: number;
+  skip?: number;
+  changes?: { includeInitial?: boolean };
+};
+
 export type FilterCondition = {
   [field: string]: unknown | FilterOperator;
 };
@@ -177,6 +189,7 @@ function compileFilter(condition: FilterCondition): string {
 export class QueryBuilder<T = unknown> {
   private tableName: string;
   private filterExpr: string | null = null;
+  private filterCondition: FilterCondition | null = null;
   private sortSpecs: SortSpec[] = [];
   private limitValue: number | null = null;
   private skipValue: number | null = null;
@@ -198,6 +211,7 @@ export class QueryBuilder<T = unknown> {
   find(condition: FilterCondition): QueryBuilder<T>;
   find(arg: ((doc: DocProxy) => FilterCondition) | FilterCondition): QueryBuilder<T> {
     const condition = typeof arg === "function" ? arg(createDocProxy()) : arg;
+    this.filterCondition = condition;
     this.filterExpr = compileFilter(condition);
     return this;
   }
@@ -242,7 +256,7 @@ export class QueryBuilder<T = unknown> {
   }
 
   /**
-   * Compile to SquirrelDB JS query string
+   * Compile to SquirrelDB JS query string (legacy)
    */
   compile(): string {
     let query = `db.table("${this.tableName}")`;
@@ -267,6 +281,40 @@ export class QueryBuilder<T = unknown> {
       query += ".changes()";
     } else {
       query += ".run()";
+    }
+
+    return query;
+  }
+
+  /**
+   * Compile to structured query object (preferred, no JS evaluation on server)
+   */
+  compileStructured(): StructuredQuery {
+    const query: StructuredQuery = {
+      table: this.tableName,
+    };
+
+    if (this.filterCondition) {
+      query.filter = this.filterCondition;
+    }
+
+    if (this.sortSpecs.length > 0) {
+      query.sort = this.sortSpecs.map((s) => ({
+        field: s.field,
+        direction: s.direction ?? "asc",
+      }));
+    }
+
+    if (this.limitValue !== null) {
+      query.limit = this.limitValue;
+    }
+
+    if (this.skipValue !== null) {
+      query.skip = this.skipValue;
+    }
+
+    if (this.isChanges) {
+      query.changes = { includeInitial: false };
     }
 
     return query;

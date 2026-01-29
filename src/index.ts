@@ -4,6 +4,8 @@ export * from "./query";
 export * from "./storage";
 export { SquirrelDBTcp, TcpSubscription, connectTcp } from "./tcp";
 export type { TcpConnectOptions } from "./tcp";
+export { Cache } from "./cache";
+export type { CacheOptions } from "./cache";
 
 import type {
   ClientMessage,
@@ -14,7 +16,7 @@ import type {
 } from "./types";
 
 import { QueryBuilder, table, createDocProxy, and, or, not, field } from "./query";
-import type { FilterCondition, DocProxy } from "./query";
+import type { FilterCondition, DocProxy, StructuredQuery } from "./query";
 
 type PendingRequest = {
   resolve: (msg: ServerMessage) => void;
@@ -70,7 +72,7 @@ class TableRef<T = unknown> {
    * Get all documents from the table
    */
   async all(): Promise<T[]> {
-    return this.client.query<T>(`db.table("${this.tableName}").run()`);
+    return this.client.queryStructured<T>({ table: this.tableName });
   }
 
   /**
@@ -84,7 +86,10 @@ class TableRef<T = unknown> {
    * Subscribe to all changes on this table
    */
   async changes(callback: ChangeCallback): Promise<string> {
-    return this.client.subscribe(`db.table("${this.tableName}").changes()`, callback);
+    return this.client.subscribeStructured(
+      { table: this.tableName, changes: { includeInitial: false } },
+      callback
+    );
   }
 
   /**
@@ -139,10 +144,10 @@ class ExecutableQuery<T = unknown> {
   }
 
   /**
-   * Execute the query
+   * Execute the query using structured query format (no JS evaluation on server)
    */
   async run(): Promise<T[]> {
-    return this.client.query<T>(this.builder.compile());
+    return this.client.queryStructured<T>(this.builder.compileStructured());
   }
 
   /**
@@ -150,7 +155,7 @@ class ExecutableQuery<T = unknown> {
    */
   async changes(callback: ChangeCallback): Promise<string> {
     this.builder.changes();
-    return this.client.subscribe(this.builder.compile(), callback);
+    return this.client.subscribeStructured(this.builder.compileStructured(), callback);
   }
 
   /**
@@ -158,6 +163,58 @@ class ExecutableQuery<T = unknown> {
    */
   toString(): string {
     return this.builder.compile();
+  }
+}
+
+/**
+ * Subscription builder for fluent change subscriptions
+ * Usage: db.subscribe("users").changes((change) => {})
+ */
+class SubscriptionBuilder<T = unknown> {
+  constructor(
+    private client: SquirrelDB,
+    private tableName: string
+  ) {}
+
+  /**
+   * Filter changes matching condition
+   */
+  find(fn: (doc: DocProxy) => FilterCondition): SubscriptionBuilder<T>;
+  find(condition: FilterCondition): SubscriptionBuilder<T>;
+  find(arg: ((doc: DocProxy) => FilterCondition) | FilterCondition): SubscriptionBuilder<T> {
+    const builder = new QueryBuilder<T>(this.tableName);
+    builder.find(arg as FilterCondition);
+    return new FilteredSubscriptionBuilder<T>(this.client, builder);
+  }
+
+  /**
+   * Subscribe to all changes on this table
+   */
+  async changes(callback: ChangeCallback): Promise<string> {
+    return this.client.subscribeStructured(
+      { table: this.tableName, changes: { includeInitial: false } },
+      callback
+    );
+  }
+}
+
+/**
+ * Subscription builder with filter applied
+ */
+class FilteredSubscriptionBuilder<T = unknown> extends SubscriptionBuilder<T> {
+  constructor(
+    private _client: SquirrelDB,
+    private builder: QueryBuilder<T>
+  ) {
+    super(_client, "");
+  }
+
+  /**
+   * Subscribe to filtered changes
+   */
+  async changes(callback: ChangeCallback): Promise<string> {
+    this.builder.changes();
+    return this._client.subscribeStructured(this.builder.compileStructured(), callback);
   }
 }
 
@@ -276,11 +333,41 @@ export class SquirrelDB {
     return new TableRef<T>(this, name);
   }
 
+  /**
+   * Subscribe to changes on a table (fluent API)
+   * Usage: db.subscribe("users").changes((change) => {})
+   * Usage: db.subscribe("users").find(doc => doc.status.eq("active")).changes((change) => {})
+   */
+  subscribe<T = unknown>(tableName: string): SubscriptionBuilder<T> {
+    return new SubscriptionBuilder<T>(this, tableName);
+  }
+
   // =========================================================================
-  // Raw Query API
+  // Structured Query API (preferred)
   // =========================================================================
 
-  /** Execute a raw query string */
+  /** Execute a structured query (no JS evaluation on server) */
+  async queryStructured<T = unknown>(q: StructuredQuery): Promise<T[]> {
+    const resp = await this.send({ type: "query", id: this.generateId(), query: q });
+    if (resp.type === "error") throw new Error(resp.error);
+    if (resp.type === "result") return resp.data as T[];
+    throw new Error("Unexpected response");
+  }
+
+  /** Subscribe to changes with structured query */
+  async subscribeStructured(q: StructuredQuery, callback: ChangeCallback): Promise<string> {
+    const id = this.generateId();
+    const resp = await this.send({ type: "subscribe", id, query: q });
+    if (resp.type === "error") throw new Error(resp.error);
+    this.subscriptions.set(id, callback);
+    return id;
+  }
+
+  // =========================================================================
+  // Raw Query API (legacy)
+  // =========================================================================
+
+  /** Execute a raw query string (legacy, prefer queryStructured) */
   async query<T = unknown>(q: string): Promise<T[]> {
     const resp = await this.send({ type: "query", id: this.generateId(), query: q });
     if (resp.type === "error") throw new Error(resp.error);
@@ -288,8 +375,8 @@ export class SquirrelDB {
     throw new Error("Unexpected response");
   }
 
-  /** Subscribe to changes with raw query string */
-  async subscribe(q: string, callback: ChangeCallback): Promise<string> {
+  /** Subscribe to changes with raw query string (legacy, prefer db.subscribe("table").changes()) */
+  async subscribeRaw(q: string, callback: ChangeCallback): Promise<string> {
     const id = this.generateId();
     const resp = await this.send({ type: "subscribe", id, query: q });
     if (resp.type === "error") throw new Error(resp.error);
