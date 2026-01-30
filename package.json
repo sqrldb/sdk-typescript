@@ -1,7 +1,7 @@
 {
-  "name": "squirreldb",
-  "version": "0.0.1",
-  "description": "TypeScript client for SquirrelDB",
+  "name": "squirreldb-sdk",
+  "version": "0.1.0",
+  "description": "Client SDK for SquirrelDB realtime database",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -15,6 +15,10 @@
   },
   "keywords": ["squirreldb", "database", "realtime", "websocket", "tcp"],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/squirreldb/squirreldb"
+  },
   "dependencies": {
     "msgpackr": "^1.11.8"
   },

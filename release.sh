@@ -3,9 +3,9 @@ set -e
 
 cd "$(dirname "$0")"
 
-VERSION=$(grep '"version"' package.json | head -1 | awk -F'"' '{print $4}')
+VERSION="0.1.0"
 
-echo "Building squirreldb TypeScript SDK v${VERSION}..."
+echo "Building squirreldb-sdk v${VERSION}..."
 bun run build
 
 echo "Running tests..."
@@ -14,4 +14,4 @@ bun test
 echo "Publishing to npm..."
 npm publish --access public
 
-echo "Published squirreldb@${VERSION} to npm"
+echo "Published squirreldb-sdk@${VERSION} to npm"
