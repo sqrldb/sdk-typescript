@@ -1,11 +1,13 @@
 {
   "name": "squirreldb-sdk",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Client SDK for SquirrelDB realtime database",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "bun build ./src/index.ts --outdir ./dist --target node && tsc --emitDeclarationOnly",
     "dev": "bun --watch src/index.ts",
@@ -13,7 +15,13 @@
     "test": "bun test",
     "test:unit": "bun test tests/"
   },
-  "keywords": ["squirreldb", "database", "realtime", "websocket", "tcp"],
+  "keywords": [
+    "squirreldb",
+    "database",
+    "realtime",
+    "websocket",
+    "tcp"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
